@@ -1,61 +1,255 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+````markdown
+# Website-Wide Search System
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+A Laravel 12 application implementing a website-wide search system with MySQL, Laravel Scout (Database driver), Laravel Queues (Redis), and Bootstrap 5 for the frontend.
 
-## About Laravel
+## Setup Instructions
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+1. **Clone the Repository**:
+   ```bash
+   git clone https://github.com/RatheeshN/website-search.git
+   cd website-search-system
+   ```
+````
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+2. **Install Dependencies**:
+   Install PHP and JavaScript dependencies:
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+   ```bash
+   docker-compose exec app composer install
+   docker-compose exec app npm install
+   docker-compose exec app npm run build
+   ```
 
-## Learning Laravel
+3. **Set Up Environment**:
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+   - Copy `.env.example` to `.env`:
+     ```bash
+     cp .env.example .env
+     ```
+   - Update `.env` with the following:
+     ```env
+     APP_ENV=local
+     APP_DEBUG=true
+     DB_CONNECTION=mysql
+     DB_HOST=localhost
+     DB_PORT=3306
+     DB_DATABASE=website_search
+     DB_USERNAME=root
+     DB_PASSWORD=
+     SCOUT_DRIVER=database
+     SCOUT_QUEUE=true
+     QUEUE_CONNECTION=redis
+     REDIS_HOST=redis
+     REDIS_PORT=6379
+     ```
+   - Generate the application key:
+     ```bash
+     docker-compose exec app php artisan key:generate
+     ```
 
-You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
+4. **Run Docker**:
+   Start the Docker containers:
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+   ```bash
+   docker-compose up -d
+   ```
 
-## Laravel Sponsors
+5. **Run Migrations and Seeders**:
+   Create database tables and populate with sample data:
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+   ```bash
+   docker-compose exec app php artisan migrate
+   docker-compose exec app php artisan db:seed
+   ```
 
-### Premium Partners
+6. **Rebuild Search Index**:
+   Index all models for search:
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+   ```bash
+   docker-compose exec app php artisan scout:rebuild
+   ```
 
-## Contributing
+7. **Run Queue Worker**:
+   Process indexing jobs:
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+   ```bash
+   docker-compose exec app php artisan queue:work
+   ```
 
-## Code of Conduct
+8. **Access the Application**:
+   - Open `http://localhost:8000` in a browser to use the search interface.
+   - Test API endpoints using tools like Postman.
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+## Indexing and Search Logic
 
-## Security Vulnerabilities
+### Indexing
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+- **Laravel Scout**: The application uses Laravel Scout with the Database driver for indexing searchable content.
+- **Models**: The `BlogPost`, `Product`, `Page`, and `Faq` models implement the `Searchable` trait, defining searchable fields (`title`, `body`, `tags`, etc.) in the `toSearchableArray` method.
+- **Queue-Based Indexing**: The `UpdateSearchIndex` job is dispatched on model create, update, or delete events, ensuring asynchronous index updates via Laravel Queues (Redis).
+- **Manual Rebuild**: The `php artisan scout:rebuild` command flushes and re-imports all models into the search index.
 
-## License
+### Search Logic
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+- **Unified Search Endpoint**: The `/api/search?q=...` endpoint searches across all models using Scout’s search functionality.
+  - Supports partial matching (e.g., “deve” matches “developer”).
+  - Returns paginated results (10 per page) with metadata: `type` (e.g., BlogPost), `title`, `snippet` (truncated content), and `link` (URL to the resource).
+  - Results are sorted by title for basic relevance.
+- **Suggestions**: The `/api/search/suggestions?q=...` endpoint provides typeahead suggestions by searching model titles and returning unique matches.
+- **Search Logging**: Queries from authenticated users are logged in the `search_logs` table. The `/api/search/logs` endpoint (admin-only) returns the top search terms.
+- **Access Control**: The `EnsureUserIsAdmin` middleware restricts the logs endpoint to users with `is_admin=1`.
+
+## Running Queues and Scheduler
+
+### Queues
+
+- **Purpose**: Indexing jobs are processed asynchronously using Laravel Queues with Redis.
+- **Run Queue Worker**:
+  ```bash
+  docker-compose exec app php artisan queue:work
+  ```
+  For production, run in daemon mode:
+  ```bash
+  docker-compose exec app php artisan queue:work --daemon
+  ```
+- **Verify**: Ensure the Redis container is running (`docker-compose ps`) and check job processing:
+  ```bash
+  docker-compose exec redis redis-cli LLEN queues:default
+  ```
+
+### Scheduler
+
+- **Purpose**: Automates periodic tasks, such as rebuilding the search index daily.
+- **Setup**:
+  - Edit `app/Console/Kernel.php` to schedule the rebuild command:
+    ```php
+    $schedule->command('scout:rebuild')->daily();
+    ```
+  - Set up a cron job to run the scheduler every minute:
+    ```bash
+    crontab -e
+    ```
+    Add:
+    ```
+    * * * * * cd /path/to/website-search-system && docker-compose exec app php artisan schedule:run >> /dev/null 2>&1
+    ```
+- **Run Manually** (for testing):
+  ```bash
+  docker-compose exec app php artisan schedule:run
+  ```
+
+## Sample Queries and Expected Results
+
+1. **Search Query**:
+
+   ```bash
+   curl "http://localhost:8000/api/search?q=UT"
+   ```
+
+   **Expected Response**:
+
+   ```json
+   {
+     "results": [
+       {
+         "type": "Product",
+         "title": "voluptas",
+         "snippet": "Aliquam eum magnam consequatur saepe nobis error consequuntur et. Alias et quo ex ducimus nisi. Aut ...",
+         "link": "/product/6"
+       },
+       {
+         "type": "Product",
+         "title": "totam",
+         "snippet": "Et doloremque doloremque cum quaerat placeat qui. Fugit laudantium doloribus nihil aliquid consequat...",
+         "link": "/product/17"
+       },
+       {
+         "type": "Product",
+         "title": "rerum",
+         "snippet": "Consequatur enim consequatur placeat repudiandae explicabo sit deleniti ullam. Quisquam libero repud...",
+         "link": "/product/12"
+       },
+       {
+         "type": "Product",
+         "title": "repellendus",
+         "snippet": "Ipsam quo ut aut maxime vel. Tenetur est ut et velit. Hic dolores eum pariatur minus commodi delectu...",
+         "link": "/product/14"
+       },
+       {
+         "type": "Product",
+         "title": "ratione",
+         "snippet": "Voluptas accusamus accusamus numquam commodi et velit voluptas. Sapiente officiis quis est aut assum...",
+         "link": "/product/2"
+       },
+       {
+         "type": "Product",
+         "title": "provident",
+         "snippet": "Dolor commodi hic qui dignissimos. Libero totam magnam delectus dolorem. Ut quaerat velit ab exceptu...",
+         "link": "/product/15"
+       }
+     ],
+     "pagination": {
+       "total": 55,
+       "per_page": 10,
+       "current_page": 1,
+       "last_page": 6
+     }
+   }
+   ```
+
+2. **Suggestions Query**:
+
+   ```bash
+   curl "http://localhost:8000/api/search/suggestions?q=UT"
+   ```
+
+   **Expected Response**:
+
+   ```json
+   {
+     "0": "Consectetur ut laborum voluptatem in porro et ipsam.",
+     "1": "Error et quisquam atque ipsam impedit recusandae.",
+     "2": "Consequatur eos aut similique a voluptate soluta voluptatem debitis.",
+     "3": "At ut vitae corporis quia est praesentium.",
+     "4": "Quia quia ut tempora totam ipsum.",
+     "5": null,
+     "10": "Ea consequatur rem et aperiam temporibus.",
+     "11": "Aliquam doloribus et sequi ut sit qui consequuntur quis.",
+     "12": "Nisi suscipit assumenda error vel excepturi blanditiis reiciendis quam.",
+     "13": "Commodi aperiam voluptate quisquam quia.",
+     "14": "Aut libero eum alias dolorem."
+   }
+   ```
+
+3. **Top Search Terms (Admin)**:
+   - Requires authentication with a user having `is_admin=1`.
+   - Create an admin user:
+     ```bash
+     docker-compose exec app php artisan tinker
+     App\Models\User::create(['name' => 'Admin', 'email' => 'admin@example.com', 'password' => bcrypt('password'), 'is_admin' => true]);
+     ```
+   - Log in via the frontend (`/login`) to get a token, then:
+     ```bash
+     curl -H "Authorization: Bearer <admin-token>" "http://localhost:8000/api/search/logs"
+     ```
+     **Expected Response**:
+   ```json
+   {
+     "top_searches": ["UT", "product", "faq", "page"]
+   }
+   ```
+
+## Additional Notes
+
+- **Docker Setup**: The `Dockerfile` configures PHP 8.2 with MySQL support, and `docker-compose.yml` defines services for the Laravel app, MySQL, and Redis.
+- **Postman Collection**: Import `postman_collection.json` to test API endpoints.
+- **Artisan Commands**:
+  - `php artisan scout:rebuild`: Rebuilds the search index.
+  - `php artisan search:logs:clear`: Clears search logs.
+  - `php artisan search:terms:top [--limit=10]`: Displays top search terms.
+- **Frontend**: Uses Bootstrap 5 for a responsive search interface with typeahead suggestions.
+
+```
+
+```
